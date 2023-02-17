@@ -5,61 +5,125 @@ org 100h
 locals @@
 
 start:
-        mov ax, 0b800h
+        mov ax, 0B800h
         mov es, ax
 
-        mov si, 100d
+        cmp byte ptr ds: [80], 0
+        ; je exit
+
+        mov ax, 700h
+        call clr_scr
+
+        mov bl, 10d             ; print on symb 40
+        mov bh, 5d              ; print on line 20
+        call print_frame
+
+        call get_2_user_num
+
+        push ax
+        push bx
+        push ax
+        push bx
+        push ax
+        push bx
+; Print sum of 2 numbers
+        add ax, bx
+        push ax
+        push ax
+;
+        mov bl, 12d             ; print on symb
+        mov bh, 10d             ; print on line
+        call print_s_dec
+
+        pop dx
+
+        mov bl, 24d
+        mov bh, 10d
+        call print_hex
+
+        xor di, di
+        pop si
+
+        mov bl, 30d
+        mov bh, 10d
+
+        call print_bin
+;----
+; Print sub of 2 numbers
+        pop ax
+        pop bx
+        sub ax, bx
+        push ax
+        push ax
+
+        mov bl, 12d             ; print on symb
+        mov bh, 12d             ; print on line
+        call print_s_dec
+
+        pop dx
+
+        mov bl, 24d
+        mov bh, 12d
+        call print_hex
+
+        pop si
+
+        mov bl, 30d
+        mov bh, 12d
         call print_bin
 
-        mov ax, 4c00h
-        int 21
+; Print mul of 2 numbers
+        pop ax
+        pop bx
+        mul bx
+        push ax
+        push ax
 
-;----------------------------------------------------------------------------------------------------
-;       Print symb in x, y coordinates
-;       Entry: x in bl, y in bh, symb in dl
-;       Expects: es - video-memory adress
-;       Destroys: ax, es
-;       Exit:    di relativly 0b800h with symb coordinats
-;----------------------------------------------------------------------------------------------------
+        mov bl, 12d             ; print on symb
+        mov bh, 14d             ; print on line
+        call print_s_dec
 
-print_there     proc
+        pop dx
 
-                mov ax, 80d
-                mul bh                           ; calculate place in video-memory
-                add al, bl                       ;
+        mov bl, 24d
+        mov bh, 14d
+        call print_hex
 
-                shl ax, 1
+        pop si
 
-                mov di, ax
-                mov byte ptr es: [di], dl        ; print symb(dl) in (80 * ax + bl)*2 + es
+        mov bl, 30d
+        mov bh, 14d
+        call print_bin
+;
+; Print div of 2 numbers
+        pop ax
+        pop bx
+        xor dx, dx
+        div bx
+        push ax
+        push ax
 
-                ret
-                endp
+        mov bl, 12d             ; print on symb
+        mov bh, 16d             ; print on line
+        call print_s_dec
 
-;----------------------------------------------------------------------------------------------------
-;       Print binary number
-;       Entry: si
-;       Expects: es - video-memory adress
-;       Destroys: di, bx, ax, es, cx
-;       Exit:
-;----------------------------------------------------------------------------------------------------
+        pop dx
 
-print_bin        proc
-                mov cx, 0fh
-                mov bl, 40d
-                mov bh, 20d
-@@Print:
-                shl si, 1
-                mov dl, 30h
-                adc dl, 0
+        mov bl, 24d
+        mov bh, 16d
+        call print_hex
 
-                call print_there
-                add di, 1d
-                add bx, 1d
-                loop @@Print
+        pop si
 
-                ret
-                endp
+        mov bl, 30d
+        mov bh, 16d
+        call print_bin
 
+exit:
+        mov ax, 4C00h
+        int 21h
+
+;~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+include         frame_pr.asm
 
 end start
