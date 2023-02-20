@@ -28,7 +28,51 @@ print_there     proc
 ;----------------------------------------------------------------------------------------------------
 ;       Print frame on coordinates. Use "print_there" function
 ;       Entry:  bl - x,
+;               bh - y,
+;               si - adress on buffer with symbols
+;               ch - length of middle part of line
+;               cl - height of frame
+;       Expects: es - video-memory adress
+;       Destroys: al,
+;                 es,
+;                 dl,
+;                 ch
+;       Exit:
+;----------------------------------------------------------------------------------------------------
+; print_there --> print / print_at
+; frame_symbols [ 0c9h .....]
+print_frame     proc
+
+                push bx
+                call print_line
+                pop bx
+
+                inc si
+                dec cl
+print_vert_lines:
+                inc bh
+                push bx
+                call print_line
+                pop bx
+                sub si, 2
+                dec cl
+
+                cmp cl, 0h
+                ja print_vert_lines
+
+                add si, 3
+                inc bh
+                call print_line
+
+                ret
+                endp
+
+;----------------------------------------------------------------------------------------------------
+;       Print line consisted from 3 symbols on coordinates. Use "print_there" function
+;       Entry:  bl - x,
 ;               bh - y
+;               ch - line length
+;               di - address of buffer([1st_elem, 2nd_elem, 3rd_elem])
 ;       Expects: es - video-memory adress
 ;       Destroys: ax,
 ;                 es,
@@ -37,87 +81,26 @@ print_there     proc
 ;       Exit: di relativly 0b800h with symb coordinats
 ;----------------------------------------------------------------------------------------------------
 
-print_frame     proc
+print_line      proc
 
-                mov dl, 0C9h                    ; angle symb
-
-                call print_there                ; print angle
-
-                mov ch, 80d                     ;
-                sub ch, bl                      ; calculate length of above line
-                sub ch, bl                      ;
-
-                mov dl, 0CDh                    ; horizontal line symb
-@@horizon_r_print:
+                mov dl, byte ptr ds: [si]
+                call print_there
+                inc si
                 inc bl
-                call print_there                ; print line symb
 
-                dec ch
-                cmp ch, 1
-                ja @@horizon_r_print
-
-                mov dl, 0BBh                    ; angle symb
-
+                mov dl, byte ptr ds: [si]
+                push cx
+print_middle:
                 call print_there
-
-;- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-                mov ch, 25d                     ;
-                sub ch, bh                      ; calculate length of right line
-                sub ch, bh                      ;
-
-                mov dl, 0BAh                    ; vertical line symb
-@@vert_down_print:
-                inc bh
-                call print_there                ; print line symb
-
-                dec ch
-                cmp ch, 1
-                ja @@vert_down_print
-
-;- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-                mov dl, 0BCh                    ; angle symb
-
-                call print_there
-
-                mov dh, 80d                     ;
-                sub dh, bl                      ;
-                mov ch, 80d                     ; calculate length of right line
-                shl dh, 1                       ;
-                sub ch, dh                      ;
-                inc ch                          ;
-
-                mov dl, 0CDh                    ; angle symb
-@@horizon_l_print:
-                dec bl
-                call print_there                ; print line symb
-
+                inc bl
                 dec ch
                 cmp ch, 0
-                ja @@horizon_l_print
+                ja print_middle
 
-                mov dl, 0C8h                    ; angle symb
-
+                pop cx
+                inc si
+                mov dl, byte ptr ds: [si]
                 call print_there
-
-;- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-                mov dh, 25d                     ;
-                sub dh, bh                      ;
-                mov ch, 25d                     ; calculate length of right line
-                shl dh, 1                       ;
-                sub ch, dh                      ;
-
-                mov dl, 0BAh                    ; vertical line symb
-@@vert_up_print:
-                dec bh
-                call print_there                ; print line symb
-                xor di, di
-
-                dec ch
-                cmp ch, 0
-                ja @@vert_up_print
 
                 ret
                 endp
@@ -140,7 +123,7 @@ print_un_dec       proc
 
                 add bl, 5d              ; length of number
 @@get_number:
-                mov di, 10              ; base of notation
+                mov di, 10d              ; base of notation
                 xor dx, dx              ; get number
                 div di
 
@@ -151,7 +134,7 @@ print_un_dec       proc
 
                 inc cx
                 dec bl
-                cmp cx, 5
+                cmp cx, 5d
                 jb @@get_number
 
                 ret
@@ -202,9 +185,11 @@ print_s_dec     proc
 get_user_dec_number     proc
 
 @@getting:
-		cmp byte ptr ds: [di], 0dh	    ; check end of line
+		cmp byte ptr ds: [di], 0Dh	    ; check end of line
 		je @@end_getting
                 cmp byte ptr ds: [di], ' '	    ; check space of line
+		je @@end_getting
+                cmp byte ptr ds: [di], '_'	    ; check space of line
 		je @@end_getting
 
 		mov dl, byte ptr ds: [di]           ; get user symb
@@ -243,7 +228,9 @@ get_user_dec_number     proc
 ;                 dx
 ;       Exit: ax - decimal number
 ;----------------------------------------------------------------------------------------------------
-
+; bnb() buy new beer build and beep below not Bill
+; parse_sign_decimal
+;
 get_s_dec       proc
                 xor cx, cx
 
@@ -254,9 +241,12 @@ get_s_dec       proc
                 cmp byte ptr ds: [di], '-'	    ; check sign
                 jne @@getting
                 inc di
-                call get_user_dec_number
+                call get_user_dec_number ; get_input_number read_input
                 neg ax
                 ret
+; int a = 23
+; int number_of_a_big_company_empoyee_today_now
+; int n_employee;
 @@getting:
                 call get_user_dec_number
 
@@ -276,12 +266,14 @@ USER_NUMBER:    db "00000"
 
 get_2_user_num  proc
 
-                mov di, 82h
+                mov di, offset FIRST_INPUT_NUM
+                add di, 2
 
                 call get_s_dec
-                inc di
 
+                mov di, offset SECOND_INPUT_NUM
                 push ax
+                add di, 2
 
                 call get_s_dec
 
@@ -394,17 +386,18 @@ print_hex       proc
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Cleare screen
+;       Clear screen
 ;       Entry:
 ;       Expects:  ax - filling word
 ;       Destroys: bx
 ;       Exit:
 ;----------------------------------------------------------------------------------------------------
 
+;clear_screen?
 clr_scr		proc
 
 		xor bx, bx
-                mov cx, 80*25d
+                mov cx, 80d * 25d
 
 @@next:		mov es: [bx], ax
 		add bx, 2h
