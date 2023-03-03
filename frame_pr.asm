@@ -10,7 +10,7 @@
 ;       Exit: di relativly 0b800h with symb coordinats
 ;----------------------------------------------------------------------------------------------------
 
-print_there     proc
+print_at     proc
 
                 mov ax, 80d
                 mul bh                           ; calculate place in video-memory
@@ -26,21 +26,20 @@ print_there     proc
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Print frame on coordinates. Use "print_there" function
+;       Print frame on coordinates. Use "print_at" function
 ;       Entry:  bl - x,
 ;               bh - y,
-;               si - adress on buffer with symbols
+;               si - adress relatively ds on buffer with symbols
 ;               ch - length of middle part of line
 ;               cl - height of frame
-;       Expects: es - video-memory adress
+;       Expects: es - video-memory adress, written ds in buffer(save_ds_in_buf)
 ;       Destroys: al,
 ;                 es,
 ;                 dl,
 ;                 ch
 ;       Exit:
 ;----------------------------------------------------------------------------------------------------
-; print_there --> print / print_at
-; frame_symbols [ 0c9h .....]
+
 print_frame     proc
 
                 push bx
@@ -68,30 +67,34 @@ print_vert_lines:
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Print line consisted from 3 symbols on coordinates. Use "print_there" function
+;       Print line consisted from 3 symbols on coordinates. Use "print_at" function
 ;       Entry:  bl - x,
 ;               bh - y
 ;               ch - line length
-;               di - address of buffer([1st_elem, 2nd_elem, 3rd_elem])
-;       Expects: es - video-memory adress
+;               si - address of buffer([1st_elem, 2nd_elem, 3rd_elem])
+;       Expects: es - video-memory adress, written ds in buffer(save_ds_in_buf)
 ;       Destroys: ax,
 ;                 es,
 ;                 dl,
 ;                 ch
-;       Exit: di relativly 0b800h with symb coordinats
+;       Exit: si relativly ds with symb coordinats
 ;----------------------------------------------------------------------------------------------------
 
 print_line      proc
 
+                db 0B8h                 ; mov ax, |
+                save_ds_in_buf dw 00h   ;         | [buffer]
+                mov ds, ax
+
                 mov dl, byte ptr ds: [si]
-                call print_there
+                call print_at
                 inc si
                 inc bl
 
                 mov dl, byte ptr ds: [si]
                 push cx
 print_middle:
-                call print_there
+                call print_at
                 inc bl
                 dec ch
                 cmp ch, 0
@@ -100,13 +103,13 @@ print_middle:
                 pop cx
                 inc si
                 mov dl, byte ptr ds: [si]
-                call print_there
+                call print_at
 
                 ret
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Print unsigned decimal number. Use "print_there" function.
+;       Print unsigned decimal number. Use "print_at" function.
 ;       Entry:   ax - number to output
 ;       Expects:  es - video-memory adress
 ;                 bl - column
@@ -123,13 +126,13 @@ print_un_dec       proc
 
                 add bl, 5d              ; length of number
 @@get_number:
-                mov di, 10d              ; base of notation
+                mov di, 10d             ; base of notation
                 xor dx, dx              ; get number
                 div di
 
                 add dl, '0'             ; add ascii indent
                 mov si, ax              ; save ax
-                call print_there
+                call print_at
                 mov ax, si              ; restore ax
 
                 inc cx
@@ -141,7 +144,7 @@ print_un_dec       proc
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Print signed decimal number using. Use "print_there" function.
+;       Print signed decimal number using. Use "print_at" function.
 ;       Entry:   ax - number to output
 ;                bl - x
 ;                bh - y
@@ -160,7 +163,7 @@ print_s_dec     proc
 
                 mov dl, '-'
                 mov si, ax              ; save ax
-                call print_there        ; print -
+                call print_at        ; print -
                 inc bl
                 mov ax, si              ; restore ax
                 neg ax
@@ -283,7 +286,7 @@ get_2_user_num  proc
                 endp
 
 ;----------------------------------------------------------------------------------------------------
-;       Print binary number. Use "print_there"
+;       Print binary number. Use "print_at"
 ;       Entry:    si
 ;       Expects:  es - video-memory adress
 ;                 bl - x
@@ -304,7 +307,7 @@ print_bin       proc
                 shl si, 1               ; next bit
                 adc dl, 0               ; symb
 
-                call print_there        ; print symb
+                call print_at        ; print symb
                 inc di                  ; next symb
                 inc bx
                 loop @@print
@@ -349,14 +352,14 @@ byte2hex        proc
                 shr dl, 4
                 call to_hex_digit
                 mov cx, dx              ; save dx
-                call print_there
+                call print_at
                 mov dx, cx              ; restore dx
                 inc bl                  ; next column
 
                 mov dl, dh              ; restore al
                 and dl, 0Fh
                 call to_hex_digit
-                call print_there
+                call print_at
                 inc bl                  ; next column
 
                 pop dx
@@ -405,3 +408,7 @@ clr_scr		proc
 
 		ret
 		endp
+
+STAND_FRAME_BUFFER: db 0C9h, 0CDh, 0BBh, 0BAh, 0h, 0BAh, 0C8h, 0CDh, 0BCh
+FIRST_INPUT_NUM:  db 6, 0, "_____"
+SECOND_INPUT_NUM: db 6, 0, "_____"
