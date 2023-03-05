@@ -5,11 +5,17 @@ locals @@
 .code
 org 100h
 
+frame_y = 8h
+frame_x = 68d
+frame_length = 0Ch
+frame_height = 0Ah
+
 start:
                 mov ax, ds                               ; save ds of program
                 mov word [save_ds_in_buf - 2],  ax       ; write ds in buffer in print_line
                 mov word [save_ds_in_buf1 - 2], ax       ; write ds in buffer in int 08h
                 mov word [save_ds_in_buf2 - 2], ax       ; write ds in buffer in int 09h
+                mov word [save_ds_in_buf3 - 2], ax       ; write ds in buffer in int 09h
 
                 xor bx, bx
                 mov es, bx
@@ -45,7 +51,8 @@ start:
                 mov es:[bx + 2], ax
 
                 sti
-
+; int 09h
+; int 08h
                 mov ax, 3100h
                 mov dx, offset EOP
                 shr dx, 4h
@@ -70,29 +77,18 @@ New08           proc
                 cmp word ptr ds: [SKIP_SHOWING_FRAME], 0h               ; check working mode
                 je @@SKIP_DRAWING_FRAME
 
+                call screen_saver
 
-                mov bl, 68d                                             ; x start position of frame
-                mov bh, 8h                                              ; y start position of frame
-
-                mov ch, 0Ah                                             ; height of frame
-                mov cl, 8h                                              ; length of frame
-
-                mov si, offset FRAME_BUFFER                             ; elements of frame
-
-                call print_frame
-
+                call print_table
                 mov word ptr ds: [SKIP_SHOWING_FRAME], 0h
+                mov byte ptr ds: [FIRST_RUN], 0h
 ;////////////////////////////////////////////////////////////////////////////////////////////////////
 @@SKIP_DRAWING_FRAME:
 
                 cmp word ptr ds: [SKIP_SHOWING_REGS], 0h
                 je @@SKIP_DRAWING_REGS
 
-                mov bl, 70d
-                mov bh, 9h
-                mov ch, 1h
-                mov si, offset AX_LINE_BUF
-                call print_line                         ; print 'ax:'
+                call screen_saver
 
                 mov bl, 74d                             ; print ax in x
                 mov bh, 9h                              ; print ax in y
@@ -101,11 +97,6 @@ New08           proc
                 mov dx, word ptr ss:[di + 0Ah]          ; dx = (original) ax
                 call print_hex
 ;//////////////////////////////////////////////////////////////////////////////////////////////////////
-                mov bl, 70d                             ; print 'bx:'
-                mov bh, 0Ah
-                mov ch, 1h
-                mov si, offset BX_LINE_BUF
-                call print_line
 
                 mov bl, 74d                             ; print bx in x
                 mov bh, 0Ah                             ; print bx in y
@@ -115,6 +106,18 @@ New08           proc
                 call print_hex
 
 @@SKIP_DRAWING_REGS:
+                cmp word ptr ds: [TURN_OFF_FRAME_REGS], 0h
+                je @@SKIP_TURN_OFF
+
+                call restore_original_screen
+                mov word ptr ds: [TURN_OFF_FRAME_REGS], 0h
+                mov byte ptr ds: [FIRST_RUN], 1h
+@@SKIP_TURN_OFF:
+
+                cmp byte ptr ds: [FIRST_RUN], 1h
+                je @@skip_correction
+                call correct_saved_screen
+@@skip_correction:
 
                 popa
                 pop ds es
@@ -148,6 +151,7 @@ check_what2show_int09  proc
                 cmp ax, NumLk2                                             ; check on NumLk 2
                 jne @@skip1
                 xor word ptr ds: [SKIP_SHOWING_FRAME], NumLk2              ; change mode of drawing frame
+                xor word ptr ds: [SKIP_SHOWING_REGS], Numlk3               ; change mode of drawing registers
 @@skip1:
                 xor ax, ax
                 in al, 60h                                                 ; get key
@@ -156,6 +160,17 @@ check_what2show_int09  proc
                 jne @@skip2
                 xor word ptr ds: [SKIP_SHOWING_REGS], Numlk3               ; change mode of drawing registers
 @@skip2:
+                xor ax, ax
+                in al, 60h                                                 ; get key
+
+                cmp ax, NumLk1                                             ; check on NumLk 1
+                jne @@skip3
+                xor word ptr ds: [TURN_OFF_FRAME_REGS], Numlk1             ; change mode of drawing registers
+                mov word ptr ds: [SKIP_SHOWING_REGS], 0h                   ; change mode of drawing registers
+                mov word ptr ds: [SKIP_SHOWING_FRAME], 0h                  ; change mode of drawing frame
+                mov word ptr ds: [SCREEN_SAVED], 0h
+@@skip3:
+
                 pop ds ax
 
                 call blink2keyboard
@@ -190,7 +205,218 @@ blink2keyboard  proc
                 ret
                 endp
 
+;----------------------------------------------------------------------------------------------------
+;
+;       Entry:
+;       Expects:        di with offset
+;       Destroys:
+;       Exit:
+;----------------------------------------------------------------------------------------------------
+
+save_screen    proc
+
+                push cx bx dx si
+
+                mov cx, frame_height
+                mov dx, frame_y
+                ; mov di, offset SAVE_SCREEN_BUF
+@@next:
+                push dx
+                mov ax, 80d
+                mul dx                           ; calculate place in video-memory
+                add al, frame_x                  ;
+                adc ah, 0
+
+                shl ax, 1
+                mov si, ax
+                push cx
+                mov cx, frame_length * 2
+                call memcpy
+                pop cx
+                pop dx
+                inc dx
+                loop @@next
+
+                pop si dx bx cx
+
+                ret
+                endp
+
+;----------------------------------------------------------------------------------------------------
+;
+;       Entry:
+;       Expects:
+;       Destroys:
+;       Exit:
+;----------------------------------------------------------------------------------------------------
+
+restore_original_screen    proc
+
+                push ax cx bx si di
+
+                mov ax, ds
+                mov cx, es
+                mov es, ax
+                mov ds, cx
+
+                mov cx, frame_height
+                mov dx, frame_y
+                mov si, offset SAVE_SCREEN_BUF
+@@next:
+                push dx
+                mov ax, 80d
+                mul dx                           ; calculate place in video-memory
+                add al, frame_x                  ;
+                adc ah, 0
+
+                shl ax, 1
+                mov di, ax
+                push cx
+                mov cx, frame_length * 2
+                call memcpy
+                pop cx
+                pop dx
+                inc dx
+                loop @@next
+
+                mov ax, ds
+                mov cx, es
+                mov es, ax
+                mov ds, cx
+
+                pop di si bx cx ax
+
+                ret
+                endp
+
+;----------------------------------------------------------------------------------------------------
+;
+;       Entry:
+;       Expects:
+;       Destroys:
+;       Exit:
+;----------------------------------------------------------------------------------------------------
+
+screen_saver    proc
+
+                cmp word ptr ds: [SCREEN_SAVED], 0h
+                jne @@skip_saving
+                mov word ptr ds: [SCREEN_SAVED], 1h
+                push di
+                mov di, offset SAVE_SCREEN_BUF
+                call save_screen
+                pop di
+@@skip_saving:
+
+                ret
+                endp
+
+;----------------------------------------------------------------------------------------------------
+;
+;       Entry:
+;       Expects:
+;       Destroys:
+;       Exit:
+;----------------------------------------------------------------------------------------------------
+
+correct_saved_screen      proc
+
+                push ax cx dx bx di si ds es
+
+                db 0B8h                  ; mov ax, |
+                save_ds_in_buf3 dw 00h   ;         | [buffer]
+                mov ds, ax
+
+                mov bx, 0B800h
+                mov es, bx
+
+                mov word ptr ds: [NEED2CORRECT_BUF], 0h
+                mov di, offset SAVE_SCREEN_BUF
+                mov cx, frame_height
+                mov dx, frame_y
+@@next1:
+                push cx
+                push dx
+                mov ax, 80d
+                mul dx                           ; calculate place in video-memory
+                add al, frame_x                  ;
+                adc ah, 0
+
+                shl ax, 1
+                mov si, ax
+
+                mov cx, frame_length * 2
+                mov bx, di
+                add bx, 0Ch
+@@next2:
+                xor ax, ax
+                mov ah, byte ptr es: [si]
+                cmp byte ptr ds: [di + N_FRAME_BYTES], ah
+                je @@skip1
+                mov byte ptr ds: [di], ah
+                mov word ptr ds: [NEED2CORRECT_BUF], 1h
+@@skip1:
+                inc di
+                inc si
+
+                cmp di, bx
+                jne @@skip2
+                sub cx, 8h
+                add di, 8h
+                add si, 8h
+@@skip2:
+                loop @@next2
+
+                pop dx
+                inc dx
+                pop cx
+                loop @@next1
+
+                cmp word ptr ds: [NEED2CORRECT_BUF], 0h
+                je @@skip3
+
+                mov word ptr ds: [SKIP_SHOWING_FRAME], NumLk2              ; change mode of drawing frame
+@@skip3:
+                pop es ds si di bx dx cx ax
+                ret
+                endp
+
+print_table     proc
+
+                mov bl, frame_x                                         ; x start position of frame
+                mov bh, frame_y                                         ; y start position of frame
+
+                mov cl, frame_height - 2                                ; height of frame
+                mov ch, frame_length - 2                                ; length of frame
+
+                mov si, offset FRAME_BUFFER                             ; elements of frame
+
+                call print_frame
+
+                mov bl, 70d
+                mov bh, 9h
+                mov ch, 1h
+                mov si, offset AX_LINE_BUF
+                call print_line                         ; print 'ax:'
+
+                mov bl, 70d
+                mov bh, 0Ah
+                mov ch, 1h
+                mov si, offset BX_LINE_BUF
+                call print_line                         ; print 'bx:'
+
+                push di
+                mov di, offset SAVE_SCREEN_BUF + N_FRAME_BYTES
+                call save_screen
+                pop di
+
+                mov word ptr ds: [SKIP_SHOWING_FRAME], 0h
+
+                ret
+                endp
+
 include ../frame_pr.asm
+include ../strings/strings.asm
 
 FRAME_BUFFER: db 0C9h, 0CDh, 0BBh, 0BAh, 0h, 0BAh, 0C8h, 0CDh, 0BCh
 
@@ -203,14 +429,22 @@ SI_LINE_BUF: db 'si:'
 ES_LINE_BUF: db 'es:'
 DS_LINE_BUF: db 'ds:'
 
-SKIP_SHOWING_FRAME dw 0
-SKIP_SHOWING_REGS  dw 0
+SKIP_SHOWING_FRAME  dw 0
+SKIP_SHOWING_REGS   dw 0
+TURN_OFF_FRAME_REGS dw 0
+SCREEN_SAVED        dw 0
+NEED2CORRECT_BUF    dw 0
+FIRST_RUN           db 1
 
 NumLk1 = 4Fh
 NumLk2 = 50h
 NumLk3 = 51h
 
-; SCREEN_BUF: db
+N_FRAME_BYTES = frame_length * frame_height * 2
+
+SAVE_SCREEN_BUF: db N_FRAME_BYTES * 2h dup (?)
+
+FUCK: db 'FUCKING ASM'
 
 EOP:
 
